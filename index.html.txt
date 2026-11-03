@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>業務截圖排程格式化與整理工具</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html-docx-js@0.3.1/dist/html-docx.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800 p-4 md:p-8">
+  <div class="max-w-6xl mx-auto bg-white rounded-xl shadow-lg overflow-hidden border border-slate-200">
+    <header class="bg-indigo-900 text-white px-6 py-5">
+      <h1 class="text-2xl font-bold tracking-wide">業務截圖排程格式化與整理工具</h1>
+      <p class="text-indigo-200 text-sm mt-1">自動解析排程資料、日期篩選、格式轉換與 Word 檔匯出</p>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 p-6">
+      <!-- 左側：輸入區 -->
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-semibold text-slate-700 mb-1">貼上原始排程資料：</label>
+          <textarea id="rawInput" rows="12" class="w-full p-3 border border-slate-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none" placeholder="貼上原始資料..."></textarea>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">篩選開始日期：</label>
+            <input type="date" id="startDate" class="w-full p-2 border border-slate-300 rounded-lg text-sm">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">篩選結束日期：</label>
+            <input type="date" id="endDate" class="w-full p-2 border border-slate-300 rounded-lg text-sm">
+          </div>
+        </div>
+
+        <button onclick="processData()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg shadow transition">
+          🚀 開始格式化與篩選
+        </button>
+      </div>
+
+      <!-- 右側：結果與匯出 -->
+      <div class="space-y-4 flex flex-col">
+        <div class="flex justify-between items-center">
+          <label class="block text-sm font-semibold text-slate-700">格式化結果預覽：</label>
+          <div class="space-x-2">
+            <button onclick="copyResult()" class="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded transition">
+              📋 複製全文
+            </button>
+            <button onclick="downloadWord()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded shadow transition">
+              📥 下載 Word 檔 (.docx)
+            </button>
+          </div>
+        </div>
+
+        <div id="outputArea" class="flex-1 min-h-[300px] p-4 bg-slate-50 border border-slate-200 rounded-lg text-sm overflow-y-auto leading-relaxed">
+          <p class="text-slate-400 italic">請在左側輸入資料並點擊「開始格式化與篩選」...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function parseDateRange(text) {
+      const dates = [];
+      const m = text.match(/(\d{1,2})[\/\-](\d{1,2})\s*[\~\-–—]\s*(?:(\d{1,2})[\/\-])?(\d{1,2})/);
+      if (m) {
+        const startM = parseInt(m[1]), startD = parseInt(m[2]);
+        const endM = m[3] ? parseInt(m[3]) : startM;
+        const endD = parseInt(m[4]);
+        let cur = new Date(2026, startM - 1, startD);
+        const end = new Date(2026, endM - 1, endD);
+        while (cur <= end) {
+          dates.push(`${cur.getMonth()+1}/${cur.getDate()}`);
+          cur.setDate(cur.getDate() + 1);
+        }
+      } else {
+        const single = text.match(/(\d{1,2})[\/\-](\d{1,2})/);
+        if (single) dates.push(`${parseInt(single[1])}/${parseInt(single[2])}`);
+      }
+      return dates;
+    }
+
+    function processData() {
+      const raw = document.getElementById('rawInput').value;
+      const startInput = document.getElementById('startDate').value;
+      const endInput = document.getElementById('endDate').value;
+      if (!raw) return alert('請輸入原始排程資料！');
+
+      const lines = raw.split('\n').filter(l => l.trim() !== '');
+      const scheduleByDate = {};
+
+      lines.forEach(line => {
+        let cleanLine = line.replace(/^[Vv\s✓✔✅\*\-\•]+/, '').trim();
+        const dates = parseDateRange(cleanLine);
+        
+        let title = '', items = [];
+        const codeMatch = cleanLine.match(/(\d{12})\s*([^(?:\s]+)/) || cleanLine.match(/(.*?)(?=-|\s)/);
+        title = cleanLine;
+
+        // 核心替換邏輯
+        cleanLine = cleanLine.replace(/【一般文字撰稿】/g, '新聞稿');
+        // 【客供稿】與【PR稿】嚴格保留不互相替換
+
+        let timePrefix = '';
+        if (cleanLine.includes('09:00') || cleanLine.includes('9點') || cleanLine.includes('AM09:00')) {
+          timePrefix = '09:00起：';
+        }
+
+        // 社群轉換
+        cleanLine = cleanLine.replace(/(旅遊雲|新聞雲IG|即新聞FB|新聞雲APP|新聞雲)/g, '社群：$1');
+        cleanLine = cleanLine.replace(/MTOP1/g, '(M) 全網_TOP 推護 1').replace(/MTOP2/g, '(M) 全網_TOP 推廣 2');
+
+        let parsedItems = [];
+        if (cleanLine.includes('AD、播吧、短影')) {
+          parsedItems.push('PC首頁&M內頁_短影', 'PC+M-SITE新聞內頁_影音廣編AD', 'PC+M-SITE播吧_精選影音');
+        } else {
+          parsedItems.push((timePrefix ? timePrefix : '') + cleanLine);
+        }
+
+        dates.forEach(d => {
+          if (!scheduleByDate[d]) scheduleByDate[d] = [];
+          scheduleByDate[d].push(...parsedItems);
+        });
+      });
+
+      // 繪製結果
+      let html = `<h2 style="font-size: 16pt; font-weight: bold; margin-bottom: 12pt;">2026 業務截圖安排清單</h2>`;
+      for (const [date, items] of Object.entries(scheduleByDate)) {
+        html += `<h3 style="font-size: 13pt; font-weight: bold; margin-top: 10pt; color: #1e3a8a;">📅 ${date}</h3><ul style="list-style: none; padding-left: 0;">`;
+        items.forEach(it => {
+          html += `<li style="margin-bottom: 4pt; font-size: 11pt;">${it}</li>`;
+        });
+        html += `</ul>`;
+      }
+
+      html += `<hr style="margin: 15pt 0;"><p style="font-size: 10pt; color: #475569;">
+        📌 <strong>相關資訊</strong><br>
+        • 截圖雲端連結：<a href="https://drive.google.com/drive/u/0/folders/1qGNF_vLK64gP_MkxKR0Q8rX3P6BS6k6c">Google Drive 雲端</a><br>
+        • 假日社群電話：02-55556366 #6322、6326<br>
+        • 製作部聯繫窗口：李宜蓁 (0918-943-491)、林思妤 (0911-916-583)、李玟儒 (0921-970-375)
+      </p>`;
+
+      document.getElementById('outputArea').innerHTML = html;
+    }
+
+    function copyResult() {
+      const text = document.getElementById('outputArea').innerText;
+      navigator.clipboard.writeText(text).then(() => alert('已成功複製到剪貼簿！'));
+    }
+
+    function downloadWord() {
+      const content = document.getElementById('outputArea').innerHTML;
+      const converted = htmlDocx.asBlob(`<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>${content}</body></html>`);
+      saveAs(converted, '業務截圖排程整理.docx');
+    }
+  </script>
+</body>
+</html>
