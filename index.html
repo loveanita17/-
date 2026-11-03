@@ -53,7 +53,7 @@
           </div>
         </div>
 
-        <div id="outputArea" class="flex-1 min-h-[300px] p-4 bg-slate-50 border border-slate-200 rounded-lg text-sm overflow-y-auto leading-relaxed">
+        <div id="outputArea" class="flex-1 min-h-[300px] p-4 bg-slate-50 border border-slate-200 rounded-lg text-sm overflow-y-auto leading-relaxed font-sans">
           <p class="text-slate-400 italic">請在左側輸入資料並點擊「開始格式化與篩選」...</p>
         </div>
       </div>
@@ -61,6 +61,8 @@
   </div>
 
   <script>
+    let dynamicFileName = "2026 業務截圖安排.docx";
+
     function parseDateRange(text) {
       const dates = [];
       const m = text.match(/(\d{1,2})[\/\-](\d{1,2})\s*[\~\-–—]\s*(?:(\d{1,2})[\/\-])?(\d{1,2})/);
@@ -88,58 +90,115 @@
       if (!raw) return alert('請輸入原始排程資料！');
 
       const lines = raw.split('\n').filter(l => l.trim() !== '');
+      let targetDates = [];
+
+      if (startInput && endInput) {
+        let cur = new Date(startInput);
+        let end = new Date(endInput);
+        while (cur <= end) {
+          targetDates.push(`${cur.getMonth()+1}/${cur.getDate()}`);
+          cur.setDate(cur.getDate() + 1);
+        }
+        
+        // 自動生成動態檔名：例如 2026 業務截圖安排1031-1101.docx
+        const sM = String(new Date(startInput).getMonth() + 1).padStart(2, '0');
+        const sD = String(new Date(startInput).getDate()).padStart(2, '0');
+        const eM = String(new Date(endInput).getMonth() + 1).padStart(2, '0');
+        const eD = String(new Date(endInput).getDate()).padStart(2, '0');
+        dynamicFileName = `2026 業務截圖安排${sM}${sD}-${eM}${eD}.docx`;
+      }
+
       const scheduleByDate = {};
 
       lines.forEach(line => {
         let cleanLine = line.replace(/^[Vv\s✓✔✅\*\-\•]+/, '').trim();
         const dates = parseDateRange(cleanLine);
-        
-        let title = '', items = [];
-        const codeMatch = cleanLine.match(/(\d{12})\s*([^(?:\s]+)/) || cleanLine.match(/(.*?)(?=-|\s)/);
-        title = cleanLine;
 
-        // 核心替換邏輯
+        // 規則文字替換
         cleanLine = cleanLine.replace(/【一般文字撰稿】/g, '新聞稿');
-        // 【客供稿】與【PR稿】嚴格保留不互相替換
+        cleanLine = cleanLine.replace(/MTOP1/g, '(M) 全網_TOP 推廣 1').replace(/MTOP2/g, '(M) 全網_TOP 推廣 2');
 
-        let timePrefix = '';
-        if (cleanLine.includes('09:00') || cleanLine.includes('9點') || cleanLine.includes('AM09:00')) {
-          timePrefix = '09:00起：';
+        // 解析專案名稱與編號
+        let projName = "";
+        let projCode = "";
+        const codeMatch = cleanLine.match(/(\d{12})/);
+        if (codeMatch) projCode = codeMatch[1];
+
+        // 擷取專案主標題
+        let mainTitleMatch = cleanLine.match(/(?:^\d{12}\s+)?([^(?:\n-]+)/);
+        projName = mainTitleMatch ? mainTitleMatch[1].trim() : "專案項目";
+        if (projCode && !projName.includes(projCode)) {
+          projName = `${projName} (${projCode})`;
         }
 
-        // 社群轉換
-        cleanLine = cleanLine.replace(/(旅遊雲|新聞雲IG|即新聞FB|新聞雲APP|新聞雲)/g, '社群：$1');
-        cleanLine = cleanLine.replace(/MTOP1/g, '(M) 全網_TOP 推護 1').replace(/MTOP2/g, '(M) 全網_TOP 推廣 2');
+        // 解析具體版位與備註
+        let subItems = [];
+        let timePrefix = (cleanLine.includes('09:00') || cleanLine.includes('9點') || cleanLine.includes('AM09:00')) ? '09:00起：' : '';
 
-        let parsedItems = [];
-        if (cleanLine.includes('AD、播吧、短影')) {
-          parsedItems.push('PC首頁&M內頁_短影', 'PC+M-SITE新聞內頁_影音廣編AD', 'PC+M-SITE播吧_精選影音');
+        if (cleanLine.includes('AD、播吧、短影') || cleanLine.includes('影音廣編AD')) {
+          const is3 = cleanLine.includes('(3)');
+          subItems.push(`PC首頁&M內頁_短影${is3 ? ' (3組)' : ''}`);
+          subItems.push(`PC+M-SITE新聞內頁_影音廣編AD${is3 ? ' (3組)' : ''}`);
+          subItems.push(`PC+M-SITE播吧_精選影音${is3 ? ' (3組)' : ''}`);
         } else {
-          parsedItems.push((timePrefix ? timePrefix : '') + cleanLine);
+          // 清除多餘走期字樣，整理出簡潔版位名稱
+          let subText = cleanLine;
+          if (projCode) subText = subText.replace(projCode, '');
+          subText = subText.replace(/走期[：:].*$/g, '').replace(/-\d{1,2}\/\d{1,2}.*$/g, '').trim();
+          subText = subText.replace(/(旅遊雲|新聞雲IG|即新聞FB|新聞雲APP)/g, '社群：$1');
+          
+          if (subText.startsWith('-')) subText = subText.substring(1).trim();
+          if (!subText) subText = cleanLine;
+
+          subItems.push((timePrefix && !subText.includes('09:00') ? timePrefix : '') + subText);
         }
 
         dates.forEach(d => {
+          if (targetDates.length > 0 && !targetDates.includes(d)) return;
           if (!scheduleByDate[d]) scheduleByDate[d] = [];
-          scheduleByDate[d].push(...parsedItems);
+          scheduleByDate[d].push({
+            title: projName,
+            items: subItems
+          });
         });
       });
 
-      // 繪製結果
-      let html = `<h2 style="font-size: 16pt; font-weight: bold; margin-bottom: 12pt;">2026 業務截圖安排清單</h2>`;
-      for (const [date, items] of Object.entries(scheduleByDate)) {
-        html += `<h3 style="font-size: 13pt; font-weight: bold; margin-top: 10pt; color: #1e3a8a;">📅 ${date}</h3><ul style="list-style: none; padding-left: 0;">`;
-        items.forEach(it => {
-          html += `<li style="margin-bottom: 4pt; font-size: 11pt;">${it}</li>`;
-        });
-        html += `</ul>`;
+      // 繪製與預覽範本格式完全相同的 HTML
+      let html = `<h2 style="font-size: 16pt; font-weight: bold; margin-bottom: 12pt; font-family: Microsoft JhengHei, sans-serif;">2026 業務截圖安排</h2>`;
+
+      const sortedDates = Object.keys(scheduleByDate).sort((a,b) => {
+        const [mA, dA] = a.split('/').map(Number);
+        const [mB, dB] = b.split('/').map(Number);
+        return mA !== mB ? mA - mB : dA - dB;
+      });
+
+      if (sortedDates.length === 0) {
+        html += `<p style="color: #64748b; font-style: italic;">查無符合指定日期區間的排程資料。</p>`;
       }
 
-      html += `<hr style="margin: 15pt 0;"><p style="font-size: 10pt; color: #475569;">
-        📌 <strong>相關資訊</strong><br>
-        • 截圖雲端連結：<a href="https://drive.google.com/drive/u/0/folders/1qGNF_vLK64gP_MkxKR0Q8rX3P6BS6k6c">Google Drive 雲端</a><br>
+      sortedDates.forEach(date => {
+        html += `<h3 style="font-size: 13pt; font-weight: bold; margin-top: 14pt; margin-bottom: 6pt; color: #1e3a8a; font-family: Microsoft JhengHei, sans-serif;">📅 ${date}</h3>`;
+        
+        scheduleByDate[date].forEach(proj => {
+          html += `<div style="margin-bottom: 8pt; font-family: Microsoft JhengHei, sans-serif;">`;
+          html += `<div style="font-weight: bold; font-size: 11pt; color: #0f172a;">${proj.title}</div>`;
+          html += `<ul style="list-style-type: none; padding-left: 16px; margin-top: 2pt; margin-bottom: 4pt;">`;
+          proj.items.forEach(sub => {
+            html += `<li style="font-size: 10.5pt; color: #334155; margin-bottom: 2pt;">• ${sub}</li>`;
+          });
+          html += `</ul></div>`;
+        });
+      });
+
+      html += `<hr style="margin: 18pt 0; border: none; border-top: 1px solid #cbd5e1;"><div style="font-size: 10pt; color: #475569; line-height: 1.6; font-family: Microsoft JhengHei, sans-serif;">
+        <strong>📌 相關資訊</strong><br>
+        • 截圖雲端連結：<a href="https://drive.google.com/drive/u/0/folders/1qGNF_vLK64gP_MkxKR0Q8rX3P6BS6k6c" target="_blank">Google Drive 雲端</a><br>
         • 假日社群電話：02-55556366 #6322、6326<br>
-        • 製作部聯繫窗口：李宜蓁 (0918-943-491)、林思妤 (0911-916-583)、李玟儒 (0921-970-375)
-      </p>`;
+        • 製作部聯繫窗口：<br>
+            李宜蓁：0918-943-491<br>
+            林思妤：0911-916-583<br>
+            李玟儒：0921-970-375
+      </div>`;
 
       document.getElementById('outputArea').innerHTML = html;
     }
@@ -152,7 +211,7 @@
     function downloadWord() {
       const content = document.getElementById('outputArea').innerHTML;
       const converted = htmlDocx.asBlob(`<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>${content}</body></html>`);
-      saveAs(converted, '業務截圖排程整理.docx');
+      saveAs(converted, dynamicFileName);
     }
   </script>
 </body>
