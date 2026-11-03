@@ -12,7 +12,7 @@
   <div class="max-w-6xl mx-auto bg-white rounded-xl shadow-lg overflow-hidden border border-slate-200">
     <header class="bg-indigo-900 text-white px-6 py-5">
       <h1 class="text-2xl font-bold tracking-wide">業務截圖排程格式化與整理工具</h1>
-      <p class="text-indigo-200 text-sm mt-1">自動解析排程資料、日期篩選、格式轉換與 Word 檔匯出 (v2026.12)</p>
+      <p class="text-indigo-200 text-sm mt-1">自動解析排程資料、日期篩選、格式轉換與 Word 檔匯出 (v2026.13)</p>
     </header>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 p-6">
@@ -159,7 +159,7 @@
           // 版位細節處理
           let subItems = [];
           if (isIG) {
-            subItems.push(`新聞雲_IG限時動態 <span style="color: red;">(要記得截圖24小時後會不見)</span>`);
+            subItems.push(`新聞雲_IG限時動態 <span style="color: red;">(務必記得截圖，限動會於24小時後會不見)</span>`);
           } else if (clean.includes('AD、播吧、短影') || (clean.includes('影音廣編AD') && clean.includes('短影'))) {
             subItems.push(`PC首頁&M內頁_短影`);
             subItems.push(`PC+M-SITE新聞內頁_影音廣編AD`);
@@ -200,7 +200,7 @@
 
             if (existingProj) {
               subItems.push(...existingProj.items);
-              existingProj.items = [...new Set(subItems)]; // 濾除重複
+              existingProj.items = [...new Set(subItems)];
             } else {
               scheduleByDate[d].push({
                 title: projName,
