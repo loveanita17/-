@@ -126,9 +126,12 @@
           clean = clean.replace(/【一般文字撰稿】/g, '新聞稿');
           clean = clean.replace(/MTOP1/g, '(M) 全網_TOP 推廣 1').replace(/MTOP2/g, '(M) 全網_TOP 推廣 2');
           
-          // 社群格式轉換
-          clean = clean.replace(/新聞雲IG_?\d*/g, '社群：新聞雲_IG限時動態');
-          clean = clean.replace(/(旅遊雲|新聞雲IG|即新聞FB|新聞雲APP)/g, '社群：$1');
+          // IG 限時動態專屬格式轉換與紅字備註
+          if (clean.includes('IG') || clean.includes('限時動態')) {
+            clean = clean.replace(/.*?(?:新聞雲)?_?IG(?:限時動態)?_?\d*/, '社群：新聞雲_IG限時動態 <span style="color: red;">(要記得截圖24小時候會不見)</span>');
+          } else {
+            clean = clean.replace(/(旅遊雲|即新聞FB|新聞雲APP)/g, '社群：$1');
+          }
 
           // 抓取 12 碼案號
           let codeMatch = clean.match(/(\d{12})/);
@@ -149,8 +152,9 @@
           let chapterM = clean.match(/（(第.*?篇)）|\((第.*?篇)\)/);
           let chapterStr = chapterM ? ` (${chapterM[1] || chapterM[2]})` : '';
 
-          // 時間判斷
-          let timePrefix = (clean.includes('09:00') || clean.includes('9點') || clean.includes('AM09:00') || clean.includes('AM09')) ? '09:00起：' : '';
+          // 獨立判斷此行是否有 09:00 時間
+          let hasTime = clean.includes('09:00') || clean.includes('9點') || clean.includes('AM09:00') || clean.includes('AM09');
+          let timePrefix = hasTime ? '09:00起：' : '';
 
           // 版位細節
           let subItems = [];
@@ -160,6 +164,8 @@
             if (clean.includes('播吧')) {
               subItems.push(`PC+M-SITE播吧_精選影音`);
             }
+          } else if (clean.includes('社群：新聞雲_IG限時動態')) {
+            subItems.push(clean);
           } else {
             let detail = titleSplits.length > 1 ? titleSplits.slice(1).join('-') : clean;
             detail = detail.replace(/[\-–—－]\d{1,2}\/\d{1,2}.*$/, '').replace(/走期[：:].*$/, '').trim();
@@ -170,7 +176,7 @@
             parts.forEach(p => {
               p = p.replace(/^[VvＶｖ\s\-\•]+/g, '').replace(/\(\d+\)/g, '').trim();
               if (p && !p.match(/^\d{1,2}\/\d{1,2}/) && !p.startsWith('AM') && !p.match(/^第.*?篇$/)) {
-                let formatted = (timePrefix && !p.includes('09:00') ? timePrefix : '') + p;
+                let formatted = (hasTime && !p.includes('09:00') ? timePrefix : '') + p;
                 if (chapterStr && !formatted.includes(chapterStr.trim())) {
                   formatted += chapterStr;
                 }
@@ -245,7 +251,7 @@
 
         document.getElementById('outputArea').innerHTML = html;
       } catch (err) {
-        alert('解析發生錯誤，請檢查輸入內容：رير' + err.message);
+        alert('解析發生錯誤：' + err.message);
         console.error(err);
       }
     }
