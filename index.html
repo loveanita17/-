@@ -122,7 +122,7 @@
           const dates = parseDates(clean);
           if (dates.length === 0) return;
 
-          // 核心規則替換
+          // 替換關鍵字
           clean = clean.replace(/【一般文字撰稿】/g, '新聞稿');
           clean = clean.replace(/MTOP1/g, '(M) 全網_TOP 推廣 1').replace(/MTOP2/g, '(M) 全網_TOP 推廣 2');
           clean = clean.replace(/(旅遊雲|新聞雲IG|即新聞FB|新聞雲APP)/g, '社群：$1');
@@ -131,7 +131,7 @@
           let codeMatch = clean.match(/(\d{12})/);
           let code = codeMatch ? codeMatch[1] : '';
 
-          // 提取案名
+          // 擷取案名 (剔除篇數標籤)
           let titlePart = clean;
           if (code) {
             let idx = clean.indexOf(code);
@@ -139,35 +139,37 @@
           }
 
           let titleSplits = titlePart.split('-');
-          let projName = titleSplits[0].trim();
+          let projName = titleSplits[0].replace(/（(第.*?篇)）|\((第.*?篇)\)/g, '').trim();
           if (code) projName = `${projName} (${code})`;
+
+          // 處理篇數
+          let chapterM = clean.match(/（(第.*?篇)）|\((第.*?篇)\)/);
+          let chapter = chapterM ? ` (${chapterM[1] || chapterM[2]})` : '';
 
           // 處理版位
           let subItems = [];
           let timePrefix = (clean.includes('09:00') || clean.includes('9點') || clean.includes('AM09:00')) ? '09:00起：' : '';
 
-          // 判斷是否包含「AD、播吧、短影」或同時包含影音廣編與短影
           if (clean.includes('AD、播吧、短影') || (clean.includes('影音廣編AD') && clean.includes('短影'))) {
             subItems.push(`PC首頁&M內頁_短影`);
             subItems.push(`PC+M-SITE新聞內頁_影音廣編AD`);
-            // 只有當原始文字包含「播吧」時才加入播吧
             if (clean.includes('播吧')) {
               subItems.push(`PC+M-SITE播吧_精選影音`);
             }
           } else {
             let detail = titleSplits.length > 1 ? titleSplits.slice(1).join('-') : clean;
             detail = detail.replace(/-\d{1,2}\/\d{1,2}.*$/, '').replace(/走期[：:].*$/, '').trim();
-            // 移除括號中的數字 (1), (2), (3)...
-            detail = detail.replace(/\(\d+\)/g, '');
-            
-            let chapterM = clean.match(/（(第.*?篇)）|\((第.*?篇)\)/);
-            let chapter = chapterM ? ` (${chapterM[1] || chapterM[2]})` : '';
+            detail = detail.replace(/\(\d+\)/g, '').replace(/（(第.*?篇)）|\((第.*?篇)\)/g, '');
 
             let parts = detail.split(/[\s,、]+/);
             parts.forEach(p => {
               p = p.replace(/^[Vv\s\-\•]+/g, '').replace(/\(\d+\)/g, '').trim();
-              if (p && !p.match(/^\d{1,2}\/\d{1,2}/) && !p.startsWith('AM')) {
-                subItems.push((timePrefix ? timePrefix : '') + p + chapter);
+              if (p && !p.match(/^\d{1,2}\/\d{1,2}/) && !p.startsWith('AM') && !p.match(/^第.*?篇$/)) {
+                let formatted = (timePrefix ? timePrefix : '') + p;
+                if (chapter && !formatted.includes(chapter.trim())) {
+                  formatted += chapter;
+                }
+                subItems.push(formatted);
               }
             });
           }
@@ -186,7 +188,7 @@
           });
         });
 
-        // 產生預覽 HTML（雲端連結直接秀網址）
+        // 產生預覽 HTML
         let html = `<h2 style="font-size: 16pt; font-weight: bold; margin-bottom: 12pt; font-family: Microsoft JhengHei, sans-serif;">2026 業務截圖安排</h2>`;
 
         const sortedDates = Object.keys(scheduleByDate).sort((a,b) => {
