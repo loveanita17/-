@@ -131,7 +131,7 @@
           let codeMatch = clean.match(/(\d{12})/);
           let code = codeMatch ? codeMatch[1] : '';
 
-          // 提取主案名
+          // 提取主案名（徹底清除篇數與標號干擾）
           let titlePart = clean;
           if (code) {
             let idx = clean.indexOf(code);
@@ -139,8 +139,8 @@
           }
 
           let titleSplits = titlePart.split('-');
-          let projName = titleSplits[0].replace(/（(第.*?篇)）|\((第.*?篇)\)/g, '').trim();
-          if (code) projName = `${projName} (${code})`;
+          let baseProjName = titleSplits[0].replace(/（(第.*?篇)）|\((第.*?篇)\)/g, '').trim();
+          let projName = code ? `${baseProjName} (${code})` : baseProjName;
 
           // 提取篇數
           let chapterM = clean.match(/（(第.*?篇)）|\((第.*?篇)\)/);
@@ -182,8 +182,12 @@
             if (targetDates.length > 0 && !targetDates.includes(d)) return;
             if (!scheduleByDate[d]) scheduleByDate[d] = [];
 
-            // 嚴格依照專案名稱（包含案號）進行合併
-            let existingProj = scheduleByDate[d].find(p => p.title === projName);
+            // 關鍵修改：優先用 12 碼案號判斷合併，若無案號則用案名判斷
+            let existingProj = scheduleByDate[d].find(p => {
+              if (code && p.title.includes(code)) return true;
+              return p.title === projName;
+            });
+
             if (existingProj) {
               subItems.forEach(sub => {
                 if (!existingProj.items.includes(sub)) {
@@ -244,23 +248,4 @@
     }
 
     function copyResult() {
-      const text = document.getElementById('outputArea').innerText;
-      if (!text || text.includes('請在左側輸入')) {
-        alert('目前沒有可複製的內容！');
-        return;
-      }
-      navigator.clipboard.writeText(text).then(() => alert('已成功複製到剪貼簿！'));
-    }
-
-    function downloadWord() {
-      const content = document.getElementById('outputArea').innerHTML;
-      if (!content || content.includes('請在左側輸入')) {
-        alert('請先點擊「開始格式化與篩選」產生內容後再下載！');
-        return;
-      }
-      const converted = htmlDocx.asBlob(`<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>${content}</body></html>`);
-      saveAs(converted, dynamicFileName);
-    }
-  </script>
-</body>
-</html>
+      const
