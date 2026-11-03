@@ -44,4 +44,14 @@
         <div class="flex justify-between items-center">
           <label class="block text-sm font-semibold text-slate-700">格式化結果預覽：</label>
           <div class="space-x-2">
-            <button onclick="copyResult()" class="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-70
+            <button onclick="copyResult()" class="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded transition">
+              📋 複製全文
+            </button>
+            <button onclick="downloadWord()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded shadow transition">
+              📥 下載 Word 檔 (.docx)
+            </button>
+          </div>
+        </div>
+
+        <div id="outputArea" class="flex-1 min-h-[300px] p-4 bg-slate-50 border border-slate-200 rounded-lg text-sm overflow-y-auto leading-relaxed font-sans">
+          <p class="text-slate-400 italic">請
