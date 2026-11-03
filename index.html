@@ -122,16 +122,16 @@
           const dates = parseDates(clean);
           if (dates.length === 0) return;
 
-          // 替換關鍵字
+          // 關鍵字替換
           clean = clean.replace(/【一般文字撰稿】/g, '新聞稿');
           clean = clean.replace(/MTOP1/g, '(M) 全網_TOP 推廣 1').replace(/MTOP2/g, '(M) 全網_TOP 推廣 2');
           clean = clean.replace(/(旅遊雲|新聞雲IG|即新聞FB|新聞雲APP)/g, '社群：$1');
 
-          // 抓取 12 碼編號
+          // 抓取 12 碼案號
           let codeMatch = clean.match(/(\d{12})/);
           let code = codeMatch ? codeMatch[1] : '';
 
-          // 擷取案名 (剔除篇數標籤)
+          // 提取主案名
           let titlePart = clean;
           if (code) {
             let idx = clean.indexOf(code);
@@ -139,14 +139,14 @@
           }
 
           let titleSplits = titlePart.split('-');
-          let projName = titleSplits[0].replace(/（(第.*?篇)）|\((第.*?篇)\)/g, '').trim();
+          let projName = titleSplits[0].trim();
           if (code) projName = `${projName} (${code})`;
 
-          // 處理篇數
+          // 提取篇數（例如 第六篇）
           let chapterM = clean.match(/（(第.*?篇)）|\((第.*?篇)\)/);
-          let chapter = chapterM ? ` (${chapterM[1] || chapterM[2]})` : '';
+          let chapterStr = chapterM ? ` (${chapterM[1] || chapterM[2]})` : '';
 
-          // 處理版位
+          // 處理版位細節
           let subItems = [];
           let timePrefix = (clean.includes('09:00') || clean.includes('9點') || clean.includes('AM09:00')) ? '09:00起：' : '';
 
@@ -166,8 +166,8 @@
               p = p.replace(/^[Vv\s\-\•]+/g, '').replace(/\(\d+\)/g, '').trim();
               if (p && !p.match(/^\d{1,2}\/\d{1,2}/) && !p.startsWith('AM') && !p.match(/^第.*?篇$/)) {
                 let formatted = (timePrefix ? timePrefix : '') + p;
-                if (chapter && !formatted.includes(chapter.trim())) {
-                  formatted += chapter;
+                if (chapterStr && !formatted.includes(chapterStr.trim())) {
+                  formatted += chapterStr;
                 }
                 subItems.push(formatted);
               }
@@ -181,10 +181,22 @@
           dates.forEach(d => {
             if (targetDates.length > 0 && !targetDates.includes(d)) return;
             if (!scheduleByDate[d]) scheduleByDate[d] = [];
-            scheduleByDate[d].push({
-              title: projName,
-              items: subItems
-            });
+
+            // 檢查該日期是否已經存在同一個案子（依案號或案名合併）
+            let existingProj = scheduleByDate[d].find(p => p.title === projName);
+            if (existingProj) {
+              // 若已存在，則把子項目合併進去
+              subItems.forEach(sub => {
+                if (!existingProj.items.includes(sub)) {
+                  existingProj.items.push(sub);
+                }
+              });
+            } else {
+              scheduleByDate[d].push({
+                title: projName,
+                items: subItems
+              });
+            }
           });
         });
 
