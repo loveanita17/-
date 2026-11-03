@@ -65,7 +65,7 @@
 
     function parseDates(text) {
       const dates = [];
-      const m = text.match(/(\d{1,2})[\/\-](\d{1,2})\s*[\~\-–—]\s*(?:(\d{1,2})[\/\-])?(\d{1,2})/);
+      const m = text.match(/(\d{1,2})[\/\-](\d{1,2})\s*[\~\-–—－]\s*(?:(\d{1,2})[\/\-])?(\d{1,2})/);
       if (m) {
         const startM = parseInt(m[1]), startD = parseInt(m[2]);
         const endM = m[3] ? parseInt(m[3]) : startM;
@@ -73,4 +73,202 @@
         let cur = new Date(2026, startM - 1, startD);
         let end = new Date(2026, endM - 1, endD);
         while (cur <= end) {
-          dates.push(`${cur.getMonth()+1}/${cur.getDate()
+          dates.push(`${cur.getMonth()+1}/${cur.getDate()}`);
+          cur.setDate(cur.getDate() + 1);
+        }
+      } else {
+        const single = text.match(/(\d{1,2})[\/\-](\d{1,2})/);
+        if (single) {
+          dates.push(`${parseInt(single[1])}/${parseInt(single[2])}`);
+        }
+      }
+      return dates;
+    }
+
+    function processData() {
+      try {
+        const raw = document.getElementById('rawInput').value;
+        const startInput = document.getElementById('startDate').value;
+        const endInput = document.getElementById('endDate').value;
+        
+        if (!raw || !raw.trim()) {
+          alert('請輸入原始排程資料！');
+          return;
+        }
+
+        let targetDates = [];
+        if (startInput && endInput) {
+          let cur = new Date(startInput);
+          let end = new Date(endInput);
+          while (cur <= end) {
+            targetDates.push(`${cur.getMonth()+1}/${cur.getDate()}`);
+            cur.setDate(cur.getDate() + 1);
+          }
+          
+          const sM = String(new Date(startInput).getMonth() + 1).padStart(2, '0');
+          const sD = String(new Date(startInput).getDate()).padStart(2, '0');
+          const eM = String(new Date(endInput).getMonth() + 1).padStart(2, '0');
+          const eD = String(new Date(endInput).getDate()).padStart(2, '0');
+          dynamicFileName = `2026 業務截圖安排${sM}${sD}-${eM}${eD}.docx`;
+        }
+
+        const lines = raw.split('\n').filter(l => l.trim() !== '');
+        const scheduleByDate = {};
+
+        lines.forEach(line => {
+          // 清理半形全形 V 及無效符號
+          let clean = line.replace(/^[VvＶｖ\s✓✔✅\*\-\•]+/g, '').trim();
+          if (!clean) return;
+
+          const dates = parseDates(clean);
+
+          // 核心關鍵字替換
+          clean = clean.replace(/【一般文字撰稿】/g, '新聞稿');
+          clean = clean.replace(/MTOP1/g, '(M) 全網_TOP 推廣 1').replace(/MTOP2/g, '(M) 全網_TOP 推廣 2');
+          
+          // 特定社群名稱格式轉換
+          clean = clean.replace(/新聞雲IG(?:限時動態)?_?\d*/g, '社群：新聞雲_IG限時動態');
+          clean = clean.replace(/(旅遊雲|新聞雲IG|即新聞FB|新聞雲APP)/g, '社群：$1');
+
+          // 擷取 12 碼案號
+          let codeMatch = clean.match(/(\d{12})/);
+          let code = codeMatch ? codeMatch[1] : '';
+
+          // 提取案名
+          let titlePart = clean;
+          if (code) {
+            let idx = clean.indexOf(code);
+            titlePart = clean.substring(idx + code.length).trim();
+          }
+
+          let titleSplits = titlePart.split(/[\-–—－]/);
+          let baseProjName = titleSplits[0].replace(/（(第.*?篇)）|\((第.*?篇)\)/g, '').trim();
+          let projName = code ? `${baseProjName} (${code})` : baseProjName;
+
+          // 提取篇數
+          let chapterM = clean.match(/（(第.*?篇)）|\((第.*?篇)\)/);
+          let chapterStr = chapterM ? ` (${chapterM[1] || chapterM[2]})` : '';
+
+          // 時間字串判定 (包含全形 －AM09:00)
+          let timePrefix = (clean.includes('09:00') || clean.includes('9點') || clean.includes('AM09:00') || clean.includes('AM09')) ? '09:00起：' : '';
+
+          // 處理版位細節
+          let subItems = [];
+          if (clean.includes('AD、播吧、短影') || (clean.includes('影音廣編AD') && clean.includes('短影'))) {
+            subItems.push(`PC首頁&M內頁_短影`);
+            subItems.push(`PC+M-SITE新聞內頁_影音廣編AD`);
+            if (clean.includes('播吧')) {
+              subItems.push(`PC+M-SITE播吧_精選影音`);
+            }
+          } else {
+            let detail = titleSplits.length > 1 ? titleSplits.slice(1).join('-') : clean;
+            detail = detail.replace(/[\-–—－]\d{1,2}\/\d{1,2}.*$/, '').replace(/走期[：:].*$/, '').trim();
+            detail = detail.replace(/[\-–—－]?AM\d{2}:\d{2}/g, '');
+            detail = detail.replace(/\(\d+\)/g, '').replace(/（(第.*?篇)）|\((第.*?篇)\)/g, '');
+
+            let parts = detail.split(/[\s,、]+/);
+            parts.forEach(p => {
+              p = p.replace(/^[VvＶｖ\s\-\•]+/g, '').replace(/\(\d+\)/g, '').trim();
+              if (p && !p.match(/^\d{1,2}\/\d{1,2}/) && !p.startsWith('AM') && !p.match(/^第.*?篇$/)) {
+                let formatted = (timePrefix && !p.includes('09:00') ? timePrefix : '') + p;
+                if (chapterStr && !formatted.includes(chapterStr.trim())) {
+                  formatted += chapterStr;
+                }
+                subItems.push(formatted);
+              }
+            });
+          }
+
+          if (subItems.length === 0) {
+            subItems.push((timePrefix ? timePrefix : '') + clean);
+          }
+
+          dates.forEach(d => {
+            if (targetDates.length > 0 && !targetDates.includes(d)) return;
+            if (!scheduleByDate[d]) scheduleByDate[d] = [];
+
+            // 依案號優先歸類合併
+            let existingProj = scheduleByDate[d].find(p => {
+              if (code && p.title.includes(code)) return true;
+              return p.title === projName;
+            });
+
+            if (existingProj) {
+              subItems.forEach(sub => {
+                if (!existingProj.items.includes(sub)) {
+                  existingProj.items.push(sub);
+                }
+              });
+            } else {
+              scheduleByDate[d].push({
+                title: projName,
+                items: [...subItems]
+              });
+            }
+          });
+        });
+
+        // 產生 HTML，用自訂縮排呈現 (防止 Word 生成雙重符號)
+        let html = `<h2 style="font-size: 16pt; font-weight: bold; margin-bottom: 12pt; font-family: Microsoft JhengHei, sans-serif;">2026 業務截圖安排</h2>`;
+
+        const sortedDates = Object.keys(scheduleByDate).sort((a,b) => {
+          const [mA, dA] = a.split('/').map(Number);
+          const [mB, dB] = b.split('/').map(Number);
+          return mA !== mB ? mA - mB : dA - dB;
+        });
+
+        if (sortedDates.length === 0) {
+          html += `<p style="color: #64748b; font-style: italic;">查無符合指定日期區間的排程資料。</p>`;
+        } else {
+          sortedDates.forEach(date => {
+            html += `<h3 style="font-size: 13pt; font-weight: bold; margin-top: 14pt; margin-bottom: 6pt; color: #1e3a8a; font-family: Microsoft JhengHei, sans-serif;">📅 ${date}</h3>`;
+            
+            scheduleByDate[date].forEach(proj => {
+              html += `<div style="margin-bottom: 8pt; font-family: Microsoft JhengHei, sans-serif;">`;
+              html += `<div style="font-weight: bold; font-size: 11pt; color: #0f172a;">${proj.title}</div>`;
+              proj.items.forEach(sub => {
+                html += `<div style="font-size: 10.5pt; color: #334155; margin-left: 18px; margin-top: 2pt;">• ${sub}</div>`;
+              });
+              html += `</div>`;
+            });
+          });
+        }
+
+        html += `<hr style="margin: 18pt 0; border: none; border-top: 1px solid #cbd5e1;"><div style="font-size: 10pt; color: #475569; line-height: 1.6; font-family: Microsoft JhengHei, sans-serif;">
+          <strong>📌 相關資訊</strong><br>
+          • 截圖雲端連結：https://drive.google.com/drive/u/0/folders/1qGNF_vLK64gP_MkxKR0Q8rX3P6BS6k6c<br>
+          • 假日社群電話：02-55556366 #6322、6326<br>
+          • 製作部聯繫窗口：<br>
+              李宜蓁：0918-943-491<br>
+              林思妤：0911-916-583<br>
+              李玟儒：0921-970-375
+        </div>`;
+
+        document.getElementById('outputArea').innerHTML = html;
+      } catch (err) {
+        alert('解析發生例外錯誤：' + err.message);
+        console.error(err);
+      }
+    }
+
+    function copyResult() {
+      const text = document.getElementById('outputArea').innerText;
+      if (!text || text.includes('請在左側輸入')) {
+        alert('目前沒有可複製的內容！');
+        return;
+      }
+      navigator.clipboard.writeText(text).then(() => alert('已成功複製到剪貼簿！'));
+    }
+
+    function downloadWord() {
+      const content = document.getElementById('outputArea').innerHTML;
+      if (!content || content.includes('請在左側輸入')) {
+        alert('請先點擊「開始格式化與篩選」產生內容後再下載！');
+        return;
+      }
+      const converted = htmlDocx.asBlob(`<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>${content}</body></html>`);
+      saveAs(converted, dynamicFileName);
+    }
+  </script>
+</body>
+</html>
