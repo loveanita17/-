@@ -91,7 +91,7 @@
         const startInput = document.getElementById('startDate').value;
         const endInput = document.getElementById('endDate').value;
         
-        if (!raw.trim()) {
+        if (!raw || !raw.trim()) {
           alert('請輸入原始排程資料！');
           return;
         }
@@ -116,19 +116,22 @@
         const scheduleByDate = {};
 
         lines.forEach(line => {
-          // 移除開頭的 V 或勾選符號
           let clean = line.replace(/^[Vv\s✓✔✅\*\-\•]+/g, '').trim();
-          const dates = parseDates(clean);
+          if (!clean) return;
 
-          // 基礎字串替換
+          const dates = parseDates(clean);
+          if (dates.length === 0) return;
+
+          // 核心規則替換
           clean = clean.replace(/【一般文字撰稿】/g, '新聞稿');
           clean = clean.replace(/MTOP1/g, '(M) 全網_TOP 推廣 1').replace(/MTOP2/g, '(M) 全網_TOP 推廣 2');
           clean = clean.replace(/(旅遊雲|新聞雲IG|即新聞FB|新聞雲APP)/g, '社群：$1');
 
-          // 抓取案名與編號
+          // 抓取 12 碼編號
           let codeMatch = clean.match(/(\d{12})/);
           let code = codeMatch ? codeMatch[1] : '';
-          
+
+          // 提取案名
           let titlePart = clean;
           if (code) {
             let idx = clean.indexOf(code);
@@ -137,9 +140,9 @@
 
           let titleSplits = titlePart.split('-');
           let projName = titleSplits[0].trim();
-          if (code) projName = `${projName} (${code})`;
+          if (code) projName = `${projName} (${code})` ;
 
-          // 處理版位項目
+          // 處理版位
           let subItems = [];
           let timePrefix = (clean.includes('09:00') || clean.includes('9點') || clean.includes('AM09:00')) ? '09:00起：' : '';
 
@@ -188,7 +191,7 @@
         });
 
         if (sortedDates.length === 0) {
-          html += `<p style="color: #64748b; font-style: italic;">查無符合指定日期區間的排程資料。</p>`;
+          html += `<p style="color: #64748b; font-style: italic;">查無符合指定日期區間的排程資料（請確認貼上的資料是否包含完整日期範圍）。</p>`;
         } else {
           sortedDates.forEach(date => {
             html += `<h3 style="font-size: 13pt; font-weight: bold; margin-top: 14pt; margin-bottom: 6pt; color: #1e3a8a; font-family: Microsoft JhengHei, sans-serif;">📅 ${date}</h3>`;
@@ -217,7 +220,7 @@
 
         document.getElementById('outputArea').innerHTML = html;
       } catch (err) {
-        alert('解析時發生錯誤，請確認輸入格式是否正確。');
+        alert('解析發生例外錯誤：' + err.message);
         console.error(err);
       }
     }
