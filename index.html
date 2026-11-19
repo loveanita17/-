@@ -12,7 +12,7 @@
   <div class="max-w-6xl mx-auto bg-white rounded-xl shadow-lg overflow-hidden border border-slate-200">
     <header class="bg-indigo-900 text-white px-6 py-5">
       <h1 class="text-2xl font-bold tracking-wide">業務截圖排程格式化與整理工具</h1>
-      <p class="text-indigo-200 text-sm mt-1">自動解析排程資料、日期篩選、格式轉換與 Word 檔匯出 (v2026.13)</p>
+      <p class="text-indigo-200 text-sm mt-1">自動解析排程資料、日期篩選、格式轉換與 Word 檔匯出 (v2026.14)</p>
     </header>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 p-6">
@@ -63,9 +63,15 @@
   <script>
     let dynamicFileName = "2026 業務截圖安排.docx";
 
+    function normalizeFullWidth(str) {
+      return str.replace(/[\uff01-\uff5e]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+                .replace(/\u3000/g, ' ');
+    }
+
     function parseDates(text) {
       const dates = [];
-      const m = text.match(/(\d{1,2})[\/\-](\d{1,2})\s*[\~\-–—－]\s*(?:(\d{1,2})[\/\-])?(\d{1,2})/);
+      const norm = normalizeFullWidth(text);
+      const m = norm.match(/(\d{1,2})[\/\-](\d{1,2})\s*[\~\-–—]\s*(?:(\d{1,2})[\/\-])?(\d{1,2})/);
       if (m) {
         const startM = parseInt(m[1]), startD = parseInt(m[2]);
         const endM = m[3] ? parseInt(m[3]) : startM;
@@ -77,11 +83,11 @@
           cur.setDate(cur.getDate() + 1);
         }
       } else {
-        const single = text.match(/(\d{1,2})[\/\-](\d{1,2})/);
+        const single = norm.match(/(\d{1,2})[\/\-](\d{1,2})/);
         if (single) {
           dates.push(`${parseInt(single[1])}/${parseInt(single[2])}`);
         } else {
-          const suffixM = text.match(/_(\d{2})(\d{2})$/);
+          const suffixM = norm.match(/_(\d{2})(\d{2})$/);
           if (suffixM) {
             dates.push(`${parseInt(suffixM[1])}/${parseInt(suffixM[2])}`);
           }
@@ -95,7 +101,7 @@
         const raw = document.getElementById('rawInput').value;
         const startInput = document.getElementById('startDate').value;
         const endInput = document.getElementById('endDate').value;
-        
+
         if (!raw || !raw.trim()) {
           alert('請輸入原始排程資料！');
           return;
@@ -109,7 +115,7 @@
             targetDates.push(`${cur.getMonth()+1}/${cur.getDate()}`);
             cur.setDate(cur.getDate() + 1);
           }
-          
+
           const sM = String(new Date(startInput).getMonth() + 1).padStart(2, '0');
           const sD = String(new Date(startInput).getDate()).padStart(2, '0');
           const eM = String(new Date(endInput).getMonth() + 1).padStart(2, '0');
@@ -121,17 +127,30 @@
         const scheduleByDate = {};
 
         lines.forEach(line => {
-          let clean = line.replace(/^[VvＶｖ\s✓✔✅\*\-\•]+/g, '').trim();
+          let normLine = normalizeFullWidth(line);
+          let clean = normLine.replace(/^[Vv\s✓✔✅\*\-\•]+/g, '').trim();
           if (!clean) return;
 
           const dates = parseDates(clean);
           if (dates.length === 0) return;
 
-          // 基礎關鍵字替換
-          clean = clean.replace(/【一般文字撰稿】/g, '新聞稿');
-          clean = clean.replace(/MTOP1/g, '(M) 全網_TOP 推廣 1').replace(/MTOP2/g, '(M) 全網_TOP 推廣 2');
+          // 時間標記偵測（AM09:00、每日早上9點起、9點起）
+          let hasTime = /(?:AM0?9(?::00)?|(?:每日)?早上?9點起|09:00起?)/i.test(clean);
+          let timePrefix = hasTime ? '09:00起：' : '';
 
-          let isIG = clean.includes('IG') || clean.includes('限時動態');
+          // 清除時間字串避免殘留
+          clean = clean
+            .replace(/[\-\–—\s]*AM0?9(?::00)?/gi, '')
+            .replace(/[\-\–—\s]*(?:每日)?早上?9點起/g, '')
+            .trim();
+
+          // 關鍵字與 MTOP 轉換（先用暫存 token 避免後續空白/符號拆解打散）
+          clean = clean.replace(/【一般文字撰稿】/g, '新聞稿');
+          clean = clean
+            .replace(/M-?TOP\s*1/gi, '__MTOP1__')
+            .replace(/M-?TOP\s*2/gi, '__MTOP2__');
+
+          let isIG = /IG|限時動態/i.test(clean);
 
           // 抓取 12 碼案號
           let codeMatch = clean.match(/(\d{12})/);
@@ -144,17 +163,16 @@
             titlePart = clean.substring(idx + code.length).trim();
           }
 
-          let titleSplits = titlePart.split(/[\-–—－]/);
-          let baseProjName = titleSplits[0].replace(/（(第.*?篇)）|\((第.*?篇)\)/g, '').replace(/新聞雲_IG.*$/, '').trim();
+          let titleSplits = titlePart.split(/[\-–—]/);
+          let baseProjName = titleSplits[0]
+            .replace(/（(第.*?篇)）|\((第.*?篇)\)/g, '')
+            .replace(/新聞雲_?IG.*$/i, '')
+            .trim();
           let projName = code ? `${baseProjName} (${code})` : baseProjName;
 
           // 篇數
           let chapterM = clean.match(/（(第.*?篇)）|\((第.*?篇)\)/);
           let chapterStr = chapterM ? ` (${chapterM[1] || chapterM[2]})` : '';
-
-          // 獨立判斷時間
-          let hasTime = clean.includes('09:00') || clean.includes('9點') || clean.includes('AM09:00') || clean.includes('AM09');
-          let timePrefix = hasTime ? '09:00起：' : '';
 
           // 版位細節處理
           let subItems = [];
@@ -168,14 +186,19 @@
             }
           } else {
             let detail = titleSplits.length > 1 ? titleSplits.slice(1).join('-') : clean;
-            detail = detail.replace(/[\-–—－]\d{1,2}\/\d{1,2}.*$/, '').replace(/走期[：:].*$/, '').replace(/_\d{4}$/, '').trim();
-            detail = detail.replace(/[\-–—－]?AM\d{2}:\d{2}/g, '');
-            detail = detail.replace(/\(\d+\)/g, '').replace(/（(第.*?篇)）|\((第.*?篇)\)/g, '');
+            detail = detail
+              .replace(/[\-–—]\d{1,2}\/\d{1,2}(?:\s*[\~\-–—]\s*(?:\d{1,2}\/)?\d{1,2})?.*$/, '')
+              .replace(/走期[：:].*$/, '')
+              .replace(/_\d{4}$/, '')
+              .trim();
+            detail = detail
+              .replace(/\(\d+\)/g, '')
+              .replace(/（(第.*?篇)）|\((第.*?篇)\)/g, '');
 
             let parts = detail.split(/[\s,、]+/);
             parts.forEach(p => {
-              p = p.replace(/^[VvＶｖ\s\-\•]+/g, '').replace(/\(\d+\)/g, '').trim();
-              if (p && !p.match(/^\d{1,2}\/\d{1,2}/) && !p.startsWith('AM') && !p.match(/^第.*?篇$/)) {
+              p = p.replace(/^[Vv\s\-\•]+/g, '').replace(/\(\d+\)/g, '').trim();
+              if (p && !p.match(/^\d{1,2}\/\d{1,2}/) && !p.match(/^第.*?篇$/)) {
                 let formatted = (hasTime && !p.includes('09:00') ? timePrefix : '') + p;
                 if (chapterStr && !formatted.includes(chapterStr.trim())) {
                   formatted += chapterStr;
@@ -188,6 +211,13 @@
           if (subItems.length === 0) {
             subItems.push((timePrefix ? timePrefix : '') + clean);
           }
+
+          // 還原 MTOP 標籤
+          subItems = subItems.map(item =>
+            item
+              .replace(/__MTOP1__/g, '(M)全網_TOP推廣1')
+              .replace(/__MTOP2__/g, '(M)全網_TOP推廣2')
+          );
 
           dates.forEach(d => {
             if (targetDates.length > 0 && !targetDates.includes(d)) return;
@@ -224,7 +254,7 @@
         } else {
           sortedDates.forEach(date => {
             html += `<h3 style="font-size: 13pt; font-weight: bold; margin-top: 14pt; margin-bottom: 6pt; color: #1e3a8a; font-family: Microsoft JhengHei, sans-serif;">📅 ${date}</h3>`;
-            
+
             scheduleByDate[date].forEach(proj => {
               html += `<div style="margin-bottom: 8pt; font-family: Microsoft JhengHei, sans-serif;">`;
               html += `<div style="font-weight: bold; font-size: 11pt; color: #0f172a;">${proj.title}</div>`;
