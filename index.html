@@ -12,7 +12,7 @@
   <div class="max-w-6xl mx-auto bg-white rounded-xl shadow-lg overflow-hidden border border-slate-200">
     <header class="bg-indigo-900 text-white px-6 py-5">
       <h1 class="text-2xl font-bold tracking-wide">業務截圖排程格式化與整理工具</h1>
-      <p class="text-indigo-200 text-sm mt-1">自動解析排程資料、日期篩選、格式轉換與 Word 檔匯出 (v2026.14)</p>
+      <p class="text-indigo-200 text-sm mt-1">自動解析排程資料、日期篩選、格式轉換與 Word 檔匯出 (v2026.15)</p>
     </header>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 p-6">
@@ -20,7 +20,7 @@
       <div class="space-y-4">
         <div>
           <label class="block text-sm font-semibold text-slate-700 mb-1">貼上原始排程資料：</label>
-          <textarea id="rawInput" rows="12" class="w-full p-3 border border-slate-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none" placeholder="貼上原始資料..."></textarea>
+          <textarea id="rawInput" rows="14" class="w-full p-3 border border-slate-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none" placeholder="貼上原始資料..."></textarea>
         </div>
 
         <div class="grid grid-cols-2 gap-4">
@@ -53,7 +53,7 @@
           </div>
         </div>
 
-        <div id="outputArea" class="flex-1 min-h-[300px] p-4 bg-slate-50 border border-slate-200 rounded-lg text-sm overflow-y-auto leading-relaxed font-sans">
+        <div id="outputArea" class="flex-1 min-h-[340px] p-4 bg-slate-50 border border-slate-200 rounded-lg text-sm overflow-y-auto leading-relaxed font-sans">
           <p class="text-slate-400 italic">請在左側輸入資料並點擊「開始格式化與篩選」...</p>
         </div>
       </div>
@@ -63,9 +63,15 @@
   <script>
     let dynamicFileName = "2026 業務截圖安排.docx";
 
+    const CN_NUM_MAP = {
+      '一': 1, '二': 2, '兩': 2, '三': 3, '四': 4, '五': 5,
+      '六': 6, '七': 7, '八': 8, '九': 9, '十': 10
+    };
+
     function normalizeFullWidth(str) {
-      return str.replace(/[\uff01-\uff5e]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
-                .replace(/\u3000/g, ' ');
+      return str
+        .replace(/[\uff01-\uff5e]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+        .replace(/\u3000/g, ' ');
     }
 
     function parseDates(text) {
@@ -73,27 +79,36 @@
       const norm = normalizeFullWidth(text);
       const m = norm.match(/(\d{1,2})[\/\-](\d{1,2})\s*[\~\-–—]\s*(?:(\d{1,2})[\/\-])?(\d{1,2})/);
       if (m) {
-        const startM = parseInt(m[1]), startD = parseInt(m[2]);
-        const endM = m[3] ? parseInt(m[3]) : startM;
-        const endD = parseInt(m[4]);
+        const startM = parseInt(m[1], 10), startD = parseInt(m[2], 10);
+        const endM = m[3] ? parseInt(m[3], 10) : startM;
+        const endD = parseInt(m[4], 10);
         let cur = new Date(2026, startM - 1, startD);
         let end = new Date(2026, endM - 1, endD);
         while (cur <= end) {
-          dates.push(`${cur.getMonth()+1}/${cur.getDate()}`);
+          dates.push(`${cur.getMonth() + 1}/${cur.getDate()}`);
           cur.setDate(cur.getDate() + 1);
         }
       } else {
         const single = norm.match(/(\d{1,2})[\/\-](\d{1,2})/);
         if (single) {
-          dates.push(`${parseInt(single[1])}/${parseInt(single[2])}`);
+          dates.push(`${parseInt(single[1], 10)}/${parseInt(single[2], 10)}`);
         } else {
           const suffixM = norm.match(/_(\d{2})(\d{2})$/);
           if (suffixM) {
-            dates.push(`${parseInt(suffixM[1])}/${parseInt(suffixM[2])}`);
+            dates.push(`${parseInt(suffixM[1], 10)}/${parseInt(suffixM[2], 10)}`);
           }
         }
       }
       return dates;
+    }
+
+    function extractMaterialNote(text) {
+      // 匹配如 (3個素材)、(兩個素材)、(有三種素材)、(GIF檔要截5張圖)
+      const m = text.match(/[\(（](?:有)?([一二兩三四五六七八九十\d]+)(?:個|種|張)(?:素材|圖)[^\)）]*[\)）]/);
+      if (!m) return '';
+      const rawNum = m[1];
+      const num = /^\d+$/.test(rawNum) ? parseInt(rawNum, 10) : (CN_NUM_MAP[rawNum] || rawNum);
+      return `(${num}個素材要截${num}張圖)`;
     }
 
     function processData() {
@@ -112,7 +127,7 @@
           let cur = new Date(startInput);
           let end = new Date(endInput);
           while (cur <= end) {
-            targetDates.push(`${cur.getMonth()+1}/${cur.getDate()}`);
+            targetDates.push(`${cur.getMonth() + 1}/${cur.getDate()}`);
             cur.setDate(cur.getDate() + 1);
           }
 
@@ -134,47 +149,65 @@
           const dates = parseDates(clean);
           if (dates.length === 0) return;
 
-          // 時間標記偵測（AM09:00、每日早上9點起、9點起）
-          let hasTime = /(?:AM0?9(?::00)?|(?:每日)?早上?9點起|09:00起?)/i.test(clean);
-          let timePrefix = hasTime ? '09:00起：' : '';
+          // 擷取素材數量備註
+          const materialNote = extractMaterialNote(clean);
 
-          // 清除時間字串避免殘留
+          // 時間標記偵測（AM09:00、每日早上9點、每日早上9點起、早上9點起、9點起）
+          const hasTime = /(?:AM0?9(?::00)?|(?:每日)?早上?9點(?:起)?|09:00起?)/i.test(clean);
+          const timePrefix = hasTime ? '09:00起：' : '';
+
+          // 清除時間與走期等尾綴
           clean = clean
-            .replace(/[\-\–—\s]*AM0?9(?::00)?/gi, '')
-            .replace(/[\-\–—\s]*(?:每日)?早上?9點起/g, '')
+            .replace(/[\-\–—，,\s]*(?:每日)?早上?9點(?:起)?/g, '')
+            .replace(/[\-\–—，,\s]*AM0?9(?::00)?/gi, '')
+            .replace(/[\-\–—，,\s]*走期[：:][^\s]+/g, '')
             .trim();
 
-          // 關鍵字與 MTOP 轉換（先用暫存 token 避免後續空白/符號拆解打散）
+          // 關鍵字與 MTOP 轉換
           clean = clean.replace(/【一般文字撰稿】/g, '新聞稿');
           clean = clean
             .replace(/M-?TOP\s*1/gi, '__MTOP1__')
             .replace(/M-?TOP\s*2/gi, '__MTOP2__');
+          clean = clean.replace(/全網_新聞中_巨幅\s*[\(（]滿版[\)）]/g, '全網_新聞中_巨幅');
 
-          let isIG = /IG|限時動態/i.test(clean);
+          const isIG = /IG|限時動態/i.test(clean);
 
           // 抓取 12 碼案號
-          let codeMatch = clean.match(/(\d{12})/);
-          let code = codeMatch ? codeMatch[1] : '';
+          const codeMatch = clean.match(/(\d{12})/);
+          const code = codeMatch ? codeMatch[1] : '';
 
-          // 提取案名
-          let titlePart = clean;
+          // 提取案名與後續段落
+          let afterCode = clean;
           if (code) {
-            let idx = clean.indexOf(code);
-            titlePart = clean.substring(idx + code.length).trim();
+            const idx = clean.indexOf(code);
+            afterCode = clean.substring(idx + code.length).trim();
           }
 
-          let titleSplits = titlePart.split(/[\-–—]/);
-          let baseProjName = titleSplits[0]
-            .replace(/（(第.*?篇)）|\((第.*?篇)\)/g, '')
-            .replace(/新聞雲_?IG.*$/i, '')
-            .trim();
-          let projName = code ? `${baseProjName} (${code})` : baseProjName;
+          let projName = '';
+          let detailPart = afterCode;
 
-          // 篇數
-          let chapterM = clean.match(/（(第.*?篇)）|\((第.*?篇)\)/);
-          let chapterStr = chapterM ? ` (${chapterM[1] || chapterM[2]})` : '';
+          // 特殊專案：115年媒體行銷採購委託專業服務案-第二期第二階段-...
+          if (afterCode.includes('115年媒體行銷採購委託專業服務案') && afterCode.includes('第二期第二階段')) {
+            const stageIdx = afterCode.indexOf('第二期第二階段');
+            const baseTitle = afterCode.substring(0, stageIdx).replace(/[\-–—]+$/, '').trim();
+            projName = code ? `${baseTitle}第二期第二階段(${code})` : `${baseTitle}第二期第二階段`;
+            detailPart = afterCode.substring(stageIdx).trim();
+          } else {
+            const firstDashIdx = afterCode.search(/[\-–—]/);
+            const rawTitle = firstDashIdx >= 0 ? afterCode.substring(0, firstDashIdx) : afterCode;
+            const baseProjName = rawTitle
+              .replace(/（(第.*?篇)）|\((第.*?篇)\)/g, '')
+              .replace(/新聞雲_?IG.*$/i, '')
+              .trim();
+            projName = code ? `${baseProjName} (${code})` : baseProjName;
+            detailPart = firstDashIdx >= 0 ? afterCode.substring(firstDashIdx + 1).trim() : '';
+          }
 
-          // 版位細節處理
+          // 提取篇數
+          const chapterM = clean.match(/（(第.*?篇)）|\((第.*?篇)\)/);
+          const chapterStr = chapterM ? ` (${chapterM[1] || chapterM[2]})` : '';
+
+          // 處理版位細節
           let subItems = [];
           if (isIG) {
             subItems.push(`新聞雲_IG限時動態 <span style="color: red;">(務必記得截圖，限動會於24小時後會不見)</span>`);
@@ -185,31 +218,52 @@
               subItems.push(`PC+M-SITE播吧_精選影音`);
             }
           } else {
-            let detail = titleSplits.length > 1 ? titleSplits.slice(1).join('-') : clean;
-            detail = detail
-              .replace(/[\-–—]\d{1,2}\/\d{1,2}(?:\s*[\~\-–—]\s*(?:\d{1,2}\/)?\d{1,2})?.*$/, '')
-              .replace(/走期[：:].*$/, '')
-              .replace(/_\d{4}$/, '')
-              .trim();
-            detail = detail
+            // 移除日期區間、素材括號、篇數括號
+            let cleanedDetail = detailPart
+              .replace(/\d{1,2}\/\d{1,2}(?:\s*[\~\-–—]\s*(?:\d{1,2}\/)?\d{1,2})?/g, '')
+              .replace(/[\(（](?:有)?[一二兩三四五六七八九十\d]+(?:個|種|張)(?:素材|圖)[^\)）]*[\)）]/g, '')
+              .replace(/（(第.*?篇)）|\((第.*?篇)\)/g, '')
               .replace(/\(\d+\)/g, '')
-              .replace(/（(第.*?篇)）|\((第.*?篇)\)/g, '');
+              .trim();
 
-            let parts = detail.split(/[\s,、]+/);
+            // 保護不拆段的版位名稱（例如：旅遊雲 PC+M新聞內頁推薦行程）
+            const protectedPhrases = [];
+            cleanedDetail = cleanedDetail.replace(/旅遊雲\s*PC\+M新聞內頁推薦行程/g, match => {
+              const token = `__PROTECTED_${protectedPhrases.length}__`;
+              protectedPhrases.push(match.replace(/旅遊雲\s+PC\+M/, '旅遊雲PC+M'));
+              return token;
+            });
+
+            // 依頓號、逗號、全形/半形空白切分多版位
+            let parts = cleanedDetail
+              .split(/[、,]+|\s{2,}|\s+(?=(?:新聞雲APP_|M全網|APP新聞頁|旅遊_側欄|__MTOP|__PROTECTED_))/)
+              .map(p => p.replace(/^[\-–—\s]+|[\-–—\s]+$/g, '').trim())
+              .filter(p => p && !/^第.*?篇$/.test(p));
+
+            if (parts.length === 0 && cleanedDetail) {
+              parts = [cleanedDetail.replace(/^[\-–—\s]+|[\-–—\s]+$/g, '').trim()];
+            }
+
+            const isPlatform115 = projName.includes('115年度網路多媒體行銷平台案');
+
             parts.forEach(p => {
-              p = p.replace(/^[Vv\s\-\•]+/g, '').replace(/\(\d+\)/g, '').trim();
-              if (p && !p.match(/^\d{1,2}\/\d{1,2}/) && !p.match(/^第.*?篇$/)) {
-                let formatted = (hasTime && !p.includes('09:00') ? timePrefix : '') + p;
-                if (chapterStr && !formatted.includes(chapterStr.trim())) {
-                  formatted += chapterStr;
-                }
-                subItems.push(formatted);
+              protectedPhrases.forEach((phrase, idx) => {
+                p = p.replace(`__PROTECTED_${idx}__`, phrase);
+              });
+
+              let formatted = (hasTime ? timePrefix : '') + p;
+              if (chapterStr && !formatted.includes(chapterStr.trim())) {
+                formatted += chapterStr;
               }
+              if (materialNote) {
+                formatted += isPlatform115 ? `--${materialNote}` : `-${materialNote}`;
+              }
+              subItems.push(formatted);
             });
           }
 
           if (subItems.length === 0) {
-            subItems.push((timePrefix ? timePrefix : '') + clean);
+            subItems.push((hasTime ? timePrefix : '') + clean);
           }
 
           // 還原 MTOP 標籤
@@ -240,10 +294,10 @@
           });
         });
 
-        // 產生預覽 HTML
-        let html = `<h2 style="font-size: 16pt; font-weight: bold; margin-bottom: 12pt; font-family: Microsoft JhengHei, sans-serif;">2026 業務截圖安排</h2>`;
+        // 產生預覽 HTML（主標題置中，相關資訊前空一行）
+        let html = `<h2 style="text-align: center; font-size: 16pt; font-weight: bold; margin-bottom: 14pt; font-family: Microsoft JhengHei, sans-serif;">2026 業務截圖安排</h2>`;
 
-        const sortedDates = Object.keys(scheduleByDate).sort((a,b) => {
+        const sortedDates = Object.keys(scheduleByDate).sort((a, b) => {
           const [mA, dA] = a.split('/').map(Number);
           const [mB, dB] = b.split('/').map(Number);
           return mA !== mB ? mA - mB : dA - dB;
@@ -266,7 +320,7 @@
           });
         }
 
-        html += `<hr style="margin: 18pt 0; border: none; border-top: 1px solid #cbd5e1;"><div style="font-size: 10pt; color: #475569; line-height: 1.6; font-family: Microsoft JhengHei, sans-serif;">
+        html += `<br><div style="font-size: 10pt; color: #475569; line-height: 1.6; font-family: Microsoft JhengHei, sans-serif;">
           <strong>📌 相關資訊</strong><br>
           • 截圖雲端連結：https://drive.google.com/drive/u/0/folders/1qGNF_vLK64gP_MkxKR0Q8rX3P6BS6k6c<br>
           • 假日社群電話：02-55556366 #6322、6326<br>
